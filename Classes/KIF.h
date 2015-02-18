@@ -18,3 +18,6 @@
 #else
 #import "SenTestCase-KIFAdditions.h"
 #endif
+
+#import "UIAccessibilityElement-KIFAdditions.h"
+#import "UIApplication-KIFAdditions.h"

@@ -113,7 +113,62 @@ static const void *KIFRunLoopModesKey = &KIFRunLoopModesKey;
 
 #pragma mark - Screenshotting
 
-- (BOOL)writeScreenshotForLine:(NSUInteger)lineNumber inFile:(NSString *)filename description:(NSString *)description error:(NSError **)error;
+- (BOOL)writeScreenshotForLine:(NSUInteger)lineNumber inFile:(NSString *)filename description:(NSString *)description error:(NSError **)error
+{
+    NSString *imageName = [NSString stringWithFormat:@"%@, line %lu", [filename lastPathComponent], (unsigned long)lineNumber];
+    if (description) {
+        imageName = [imageName stringByAppendingFormat:@", %@", description];
+    }
+
+    return [self writeScreenshotWithImageName:imageName addedPath:nil error:error];
+}
+
+- (BOOL)writeScreenshotInFile:(NSString *)filename error:(NSError **)error
+{
+    NSString *imageName =
+      [NSString stringWithFormat:@"%@_%@", [filename lastPathComponent], self.screenSize];
+
+    NSString *orientation =
+        UIInterfaceOrientationIsLandscape([UIApplication sharedApplication].statusBarOrientation) ?
+        @"landscape" : @"portrait";
+    NSString *language = [[NSLocale preferredLanguages] objectAtIndex:0];
+    NSString *addedPath =
+        [NSString stringWithFormat:@"/%@/%@", orientation, language];
+    return [self writeScreenshotWithImageName:imageName addedPath:addedPath error:error];
+}
+
+- (NSString *)screenSize {
+  /// Size in points of a 3.5 inch screen (such as iPhone 4's screen).
+  static const CGFloat k3_5InchScreenHeight = 480;
+  
+  /// Size in points of a 4 inch screen (such as iPhone 5's screen).
+  static const CGFloat k4InchScreenHeight = 568;
+  
+  /// Size in points of 4.7 inch screen (such as iPhone 6's screen).
+  static const CGFloat k4_7InchScreenHeight = 667;
+  
+  /// Size in points of 5.5 inch screen (such as iPhone 6 Plus' screen).
+  static const CGFloat k5_5InchScreenHeight = 736;
+  
+  CGFloat portraitScreenHeight =
+      MAX([UIScreen mainScreen].bounds.size.width, [UIScreen mainScreen].bounds.size.height);
+  NSString *screenSize;
+  if (portraitScreenHeight == k3_5InchScreenHeight) {
+    screenSize =  @"3_5InchScreen";
+  } else if (portraitScreenHeight == k4InchScreenHeight) {
+    screenSize = @"4InchScreen";
+  } else if (portraitScreenHeight == k4_7InchScreenHeight) {
+    screenSize = @"4_7InchScreen";
+  } else if (portraitScreenHeight == k5_5InchScreenHeight) {
+    screenSize = @"5_5InchScreen";
+  } else {
+    NSAssert(NO, @"Invalid screen height");
+  }
+  return screenSize;
+}
+
+- (BOOL)writeScreenshotWithImageName:(NSString *)imageName addedPath:(NSString *)addedPath
+                               error:(NSError **)error
 {
     NSString *outputPath = [[[NSProcessInfo processInfo] environment] objectForKey:@"KIF_SCREENSHOTS"];
     if (!outputPath) {
@@ -122,26 +177,7 @@ static const void *KIFRunLoopModesKey = &KIFRunLoopModesKey;
         }
         return NO;
     }
-    
-    NSArray *windows = [self windowsWithKeyWindow];
-    if (windows.count == 0) {
-        if (error) {
-            *error = [NSError KIFErrorWithFormat:@"Could not take screenshot.  No windows were available."];
-        }
-        return NO;
-    }
-    
-    UIGraphicsBeginImageContextWithOptions([[windows objectAtIndex:0] bounds].size, YES, 0);
-    for (UIWindow *window in windows) {
-        if ([window respondsToSelector:@selector(drawViewHierarchyInRect:afterScreenUpdates:)]) {
-            [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
-        } else {
-            [window.layer renderInContext:UIGraphicsGetCurrentContext()];
-        }
-    }
-    UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-
+    outputPath = [outputPath stringByAppendingString:addedPath];
     outputPath = [outputPath stringByExpandingTildeInPath];
 
     NSError *directoryCreationError = nil;
@@ -149,16 +185,11 @@ static const void *KIFRunLoopModesKey = &KIFRunLoopModesKey;
         *error = [NSError KIFErrorWithFormat:@"Couldn't create directory at path %@ (details: %@)", outputPath, directoryCreationError];
         return NO;
     }
-
-    NSString *imageName = [NSString stringWithFormat:@"%@, line %lu", [filename lastPathComponent], (unsigned long)lineNumber];
-    if (description) {
-        imageName = [imageName stringByAppendingFormat:@", %@", description];
-    }
-
+  
     outputPath = [outputPath stringByAppendingPathComponent:imageName];
-    outputPath = [outputPath stringByAppendingPathExtension:@"png"];
-
-    if (![UIImagePNGRepresentation(image) writeToFile:outputPath atomically:YES]) {
+    outputPath = [outputPath stringByAppendingPathExtension:@"jpg"];
+    UIImage *image = [self getImageFromContextWithError:error];
+    if (![UIImageJPEGRepresentation(image, 0.8) writeToFile:outputPath atomically:YES]) {
         if (error) {
             *error = [NSError KIFErrorWithFormat:@"Could not write file at path %@", outputPath];
         }
@@ -166,6 +197,30 @@ static const void *KIFRunLoopModesKey = &KIFRunLoopModesKey;
     }
     
     return YES;
+}
+
+- (UIImage *)getImageFromContextWithError:(NSError **)error {
+  NSArray *windows = [self windowsWithKeyWindow];
+  if (windows.count == 0) {
+    if (error) {
+      *error = [NSError KIFErrorWithFormat:@"Could not take screenshot. No windows were "
+                "available."];
+    }
+    return NO;
+  }
+
+  UIGraphicsBeginImageContextWithOptions([[windows objectAtIndex:0] bounds].size, YES, 0);
+  for (UIWindow *window in windows) {
+    if ([window respondsToSelector:@selector(drawViewHierarchyInRect:afterScreenUpdates:)]) {
+      [window drawViewHierarchyInRect:window.bounds afterScreenUpdates:YES];
+    } else {
+      [window.layer renderInContext:UIGraphicsGetCurrentContext()];
+    }
+  }
+  UIImage *image = UIGraphicsGetImageFromCurrentImageContext();
+  UIGraphicsEndImageContext();
+
+  return image;
 }
 
 #pragma mark - Run loop monitoring
